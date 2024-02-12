@@ -53,22 +53,27 @@ class BertSelfAttention(nn.Module):
     ######################################################################################
 
     # Step 1: Calculate S = QK^T
+    attention_scores = torch.matmul(query, key.transpose(-1, -2))
+    attention_scores = attention_scores / math.sqrt(self.attention_head_size)
 
     # Step 2: Apply the mask to S
-
+    if attention_mask is not None:
+      attention_scores = attention_scores + attention_mask
     # Step 3: Normalize the scores
-
     # Step 4: Apply softmax to get attention probabilities
+    attention_probs = nn.Softmax(dim=-1)(attention_scores)
 
     # Step 5: Apply dropout to the attention to get the final attention scores
+    attention_probs = self.dropout(attention_probs)
 
     # Step 6: Multiply the attention scores to the value and get back V'
+    context_layer = torch.matmul(attention_probs, value)
 
     # Step 7: Concat the multi-heads and recover the original shape [bs, seq_len, num_attention_heads * attention_head_size = hidden_size]
-
+    context_layer = context_layer.transpose(1, 2).contiguous().view(-1, self.all_head_size)
+    
     # Step 8: Return V' in the shape expected by the caller, i.e [bs, seq_len, hidden_size]
-
-    raise NotImplementedError # remove this line when the function is implemented
+    return context_layer
 
   # This function is already provided for you. No change is required.
   def forward(self, hidden_states, attention_mask):
@@ -115,16 +120,19 @@ class BertLayer(nn.Module):
     ln_layer: layer norm that takes input+sublayer(output)
     """
     # Step 1: Pass output to dense layer
+    output = dense_layer(output)
 
     # Step 2: Apply dropout to output of dense layer
+    output = dropout(output)
 
     # Step 3: Add output of dense layer to the input
+    output = input + output
 
     # Step 4: Apply layer norm to the output of the add-norm layer
+    output = ln_layer(output)
 
     # Step 5: Return the output of the layer norm
-
-    raise NotImplementedError # remove this line when the function is implemented
+    return output
 
   # TODO : Complete this function step by step.
   # You must provide your code step by step following the template. You cannot use a "giant" code block for all steps at once.
@@ -143,18 +151,22 @@ class BertLayer(nn.Module):
     """
 
     # Step 1: Get the output of the multi-head attention layer using self.self_attention
+    self_attn_output = self.self_attention(hidden_states, attention_mask)
 
     # Step 2: Apply add-norm layer using self.add_norm
+    attention_output = self.add_norm(hidden_states, self_attn_output, self.attention_dense, self.attention_dropout, self.attention_layer_norm)
 
     # Step 3: Get the output of feed forward layer using self.interm_dense
+    interm_output = self.interm_dense(attention_output)
 
     # Step 4: Apply activation function to the output of feed forward layer using self.interm_af
+    interm_output = self.interm_af(interm_output)
 
     # Step 5: Apply another add-norm layer using self.add_norm
+    layer_output = self.add_norm(attention_output, interm_output, self.out_dense, self.out_dropout, self.out_layer_norm)
 
     # Step 6: Return the output of this add-norm layer
-
-    raise NotImplementedError # remove this line when the function is implemented
+    return layer_output
 
 
 class BertModel(BertPreTrainedModel):
@@ -197,13 +209,13 @@ class BertModel(BertPreTrainedModel):
     seq_length = input_shape[1]
 
     # Step 1 : Get word embedding using self.word_embedding
-    inputs_embeds = None
+    inputs_embeds = self.word_embedding(input_ids)
 
     # get position index and position embedding from self.pos_embedding
     pos_ids = self.position_ids[:, :seq_length]
 
     # Step 2 : Get position embedding using self.pos_embedding
-    pos_embeds = None
+    pos_embeds = self.pos_embedding(pos_ids)
 
     # get token type ids, since we are not consider token type, just a placeholder
     tk_type_ids = torch.zeros(input_shape, dtype=torch.long, device=input_ids.device)
@@ -217,8 +229,7 @@ class BertModel(BertPreTrainedModel):
     embeds = self.embed_dropout(embeds)
 
     # Step 3 : Return the embeddings
-
-    raise NotImplementedError # remove this line when the function is implemented
+    return embeds
 
   # This function is already provided for you. No change is required.
   def encode(self, hidden_states, attention_mask):
