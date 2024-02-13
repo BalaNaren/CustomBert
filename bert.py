@@ -54,11 +54,12 @@ class BertSelfAttention(nn.Module):
 
     # Step 1: Calculate S = QK^T
     attention_scores = torch.matmul(query, key.transpose(-1, -2))
-    attention_scores = attention_scores / math.sqrt(self.attention_head_size)
+    dk = key.size(-1)  # dimension of the key
+    attention_scores = attention_scores / math.sqrt(dk)
 
     # Step 2: Apply the mask to S
-    if attention_mask is not None:
-      attention_scores = attention_scores + attention_mask
+    attention_scores = attention_scores + attention_mask
+
     # Step 3: Normalize the scores
     # Step 4: Apply softmax to get attention probabilities
     attention_probs = nn.Softmax(dim=-1)(attention_scores)
@@ -70,8 +71,10 @@ class BertSelfAttention(nn.Module):
     context_layer = torch.matmul(attention_probs, value)
 
     # Step 7: Concat the multi-heads and recover the original shape [bs, seq_len, num_attention_heads * attention_head_size = hidden_size]
-    context_layer = context_layer.transpose(1, 2).contiguous().view(-1, self.all_head_size)
-    
+    context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
+    new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
+    context_layer = context_layer.view(*new_context_layer_shape)
+
     # Step 8: Return V' in the shape expected by the caller, i.e [bs, seq_len, hidden_size]
     return context_layer
 
@@ -120,19 +123,15 @@ class BertLayer(nn.Module):
     ln_layer: layer norm that takes input+sublayer(output)
     """
     # Step 1: Pass output to dense layer
-    output = dense_layer(output)
-
+    dense_output = dense_layer(output)
     # Step 2: Apply dropout to output of dense layer
-    output = dropout(output)
-
+    dropout_output = dropout(dense_output)
     # Step 3: Add output of dense layer to the input
-    output = input + output
-
+    add_output = input + dropout_output
     # Step 4: Apply layer norm to the output of the add-norm layer
-    output = ln_layer(output)
-
+    norm_output = ln_layer(add_output)
     # Step 5: Return the output of the layer norm
-    return output
+    return norm_output
 
   # TODO : Complete this function step by step.
   # You must provide your code step by step following the template. You cannot use a "giant" code block for all steps at once.
@@ -151,20 +150,15 @@ class BertLayer(nn.Module):
     """
 
     # Step 1: Get the output of the multi-head attention layer using self.self_attention
-    self_attn_output = self.self_attention(hidden_states, attention_mask)
-
+    attention_output = self.self_attention(hidden_states, attention_mask)
     # Step 2: Apply add-norm layer using self.add_norm
-    attention_output = self.add_norm(hidden_states, self_attn_output, self.attention_dense, self.attention_dropout, self.attention_layer_norm)
-
+    attention_output = self.add_norm(hidden_states, attention_output, self.attention_dense, self.attention_dropout, self.attention_layer_norm)
     # Step 3: Get the output of feed forward layer using self.interm_dense
-    interm_output = self.interm_dense(attention_output)
-
+    intermediate_output = self.interm_dense(attention_output)
     # Step 4: Apply activation function to the output of feed forward layer using self.interm_af
-    interm_output = self.interm_af(interm_output)
-
+    intermediate_output = self.interm_af(intermediate_output)
     # Step 5: Apply another add-norm layer using self.add_norm
-    layer_output = self.add_norm(attention_output, interm_output, self.out_dense, self.out_dropout, self.out_layer_norm)
-
+    layer_output = self.add_norm(attention_output, intermediate_output, self.out_dense, self.out_dropout, self.out_layer_norm)
     # Step 6: Return the output of this add-norm layer
     return layer_output
 
@@ -215,7 +209,7 @@ class BertModel(BertPreTrainedModel):
     pos_ids = self.position_ids[:, :seq_length]
 
     # Step 2 : Get position embedding using self.pos_embedding
-    pos_embeds = self.pos_embedding(pos_ids)
+    pos_embeds = self.pos_embedding(self.position_ids[:, :input_ids.size(1)])
 
     # get token type ids, since we are not consider token type, just a placeholder
     tk_type_ids = torch.zeros(input_shape, dtype=torch.long, device=input_ids.device)

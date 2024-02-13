@@ -42,27 +42,27 @@ class BertSentClassifier(torch.nn.Module):
         self.dropout = torch.nn.Dropout(config.hidden_dropout_prob)
 
         # Step 2: Create a linear layer with in_features=config.hidden_size and out_features=config.num_labels
-        self.classifier = torch.nn.Linear(config.hidden_size, self.num_labels)
+        self.classifier = torch.nn.Linear(config.hidden_size, config.num_labels)
 
     # TODO : Complete this function step by step.
     def forward(self, input_ids, attention_mask):
         # Note: the final bert contextualized embedding is the hidden state of [CLS] token (the first token)
 
         # Step 1: Feed input ids and attention mask to bert model to get the contextualized embeddings.
-        outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
+        outputs = self.bert(input_ids, attention_mask=attention_mask)
+
         # Step 2: Extract "pooler_output" from the output of the bert model.
         # This is the hidden state of [CLS] token (the first token)
         pooled_output = outputs['pooler_output']
 
         # Step 3: Apply dropout layer to the "pooler_output".
-        dropout_output = self.dropout(pooled_output)
+        pooled_output = self.dropout(pooled_output)
 
         # Step 4: Apply classifier layer to the output of dropout layer to get logits.
-        logits = self.classifier(dropout_output)
+        logits = self.classifier(pooled_output)
 
         # Step 5: Apply log_softmax to the logits to get log probabilities.
         log_probs = F.log_softmax(logits, dim=-1)
-
         # Step 6: Return the log probabilities.
         return log_probs
 
